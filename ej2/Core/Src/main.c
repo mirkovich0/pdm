@@ -30,11 +30,13 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+/* Definición de una secuencia de LEDS */
 typedef struct
 {
-    int repeticiones;
-    int tiempo_on;
-    int tiempo_off;
+    Led_TypeDef led;
+    int32_t repeticiones;
+    tick_t delay_on;
+    tick_t delay_off;
 } sec_led_t;
 
 /* USER CODE END PTD */
@@ -64,10 +66,18 @@ PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
 
-static const sec_led_t SECUENCIA_LEDS[] = {
-    { 5, 500, 500 }, // 5 veces con período 1 segundo y ciclo de trabajo 50%.
-    { 5, 100, 100 }, // 5 veces con período 200 ms y ciclo de trabajo 50%.
-    { 5,  50,  50 }, // 5 veces con período 100 ms y ciclo de trabajo 50%.
+/* Estado actual de un led */
+typedef struct {
+    int32_t cuenta_actual;
+    delay_t delay;
+    bool_t  encendido;
+    const sec_led_t* inicio;
+} estado_leds_t;
+
+static const sec_led_t PARPADEO_LEDS[] = {
+    { LED1, 5, 500, 500 }, // 5 veces con período 1 segundo y ciclo de trabajo 50%.
+    { LED2, 5, 100, 100 }, // 5 veces con período 200 ms y ciclo de trabajo 50%.
+    { LED3, 5,  50,  50 }, // 5 veces con período 100 ms y ciclo de trabajo 50%.
 };
 
 /* USER CODE END PV */
@@ -116,6 +126,34 @@ void delayWrite(delay_t* delay, tick_t duration)
     delay->duration = duration;
 }
 
+/* Verifica el estado de un led, lo togglea si es necesario y decrementa el contador
+ * de parpadeos
+ */
+void checkearEstadoLed(estado_leds_t* estado)
+{
+    if (estado->cuenta_actual <= 0) {
+        // Parpadeos finalizados
+        return;
+    }
+
+    if (delayRead(&estado->delay)) {
+        // Demora finalizada
+        if (!estado->encendido) {
+            // Estaba apagado: encender y setear demora
+            estado->encendido = true;
+            BSP_LED_On(estado->inicio->led);
+            delayInit(&estado->delay, estado->inicio->delay_on);
+        } else {
+            // Estaba encendido: apagar, setear demora y decrementar contador de parpadeos
+            estado->encendido = false;
+            BSP_LED_Off(estado->inicio->led);
+            delayInit(&estado->delay, estado->inicio->delay_off);
+            estado->cuenta_actual--;
+        }
+    }
+}
+
+
 /* USER CODE END 0 */
 
 /**
@@ -152,14 +190,17 @@ int main(void)
     MX_USB_OTG_FS_PCD_Init();
     /* USER CODE BEGIN 2 */
 
-    BSP_LED_Init(LED1);
+    /* Estado de nuestros leds */
+    estado_leds_t estado_leds[DIM(PARPADEO_LEDS)];
 
-    /* Contador de posición en nuestra secuencia */
-    int posicion_secuencia = 0;
-    sec_led_t secuencia_actual = SECUENCIA_LEDS[posicion_secuencia];
-    delay_t delay_actual;
-    bool_t encendido = false;
-    delayInit(&delay_actual, 0);
+    /* Inicialización del estado */
+    for (int led = 0; led < DIM(estado_leds); led++) {
+        BSP_LED_Init(PARPADEO_LEDS[led].led);
+        estado_leds[led].encendido = false;
+        estado_leds[led].cuenta_actual = PARPADEO_LEDS[led].repeticiones;
+        estado_leds[led].inicio = &PARPADEO_LEDS[led];
+        delayInit(&estado_leds[led].delay, 0);
+    }
 
     /* USER CODE END 2 */
 
@@ -169,30 +210,8 @@ int main(void)
         /* USER CODE END WHILE */
         /* USER CODE BEGIN 3 */
 
-        if (delayRead(&delay_actual)) {
-            if (secuencia_actual.repeticiones == 0) {
-                // Terminamos las repeticiones actuales, pasamos a la
-                // siguiente posición
-                posicion_secuencia++;
-                if (posicion_secuencia >= DIM(SECUENCIA_LEDS)) {
-                    posicion_secuencia = 0;
-                }
-                secuencia_actual = SECUENCIA_LEDS[posicion_secuencia];
-            }
-
-            if (!encendido) {
-                // Está apagado: encender el led y esperar la demora
-                encendido = true;
-                BSP_LED_On(LED1);
-                delayInit(&delay_actual, secuencia_actual.tiempo_on);
-            } else {
-                // Está encendido: apagar el led, esperar la demora y
-                // decrementar la cantidad de repeticiones
-                encendido = false;
-                BSP_LED_Off(LED1);
-                delayInit(&delay_actual, secuencia_actual.tiempo_off);
-                secuencia_actual.repeticiones--;
-            }
+        for (int led = 0; led < DIM(estado_leds); led++) {
+            checkearEstadoLed(&estado_leds[led]);
         }
     }
     /* USER CODE END 3 */

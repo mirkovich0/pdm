@@ -41,9 +41,10 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 
-typedef uint32_t tick_t;
-typedef bool bool_t;
+typedef uint32_t tick_t; // Tipo de dato usado para los ticks
+typedef bool bool_t; // Booleano
 
+/* Estructura que representa un timer */
 typedef struct
 {
     tick_t startTime;
@@ -68,8 +69,13 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
 
+/* Inicializa una estructura delay_t con una duración */
 void delayInit(delay_t* delay, tick_t duration);
+/* Inicia la cuenta de una estructura delay_t si no está corriendo y verifica si
+ * el timer ha caducado, devolviendo verdadero cuando este es el caso
+ */
 bool_t delayRead(delay_t* delay);
+/* Modifica la duración del timer */
 void delayWrite(delay_t* delay, tick_t duration);
 
 /* USER CODE END EFP */
