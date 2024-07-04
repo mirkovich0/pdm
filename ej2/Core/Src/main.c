@@ -113,7 +113,7 @@ bool_t delayRead(delay_t* delay)
         delay->running = true;
         delay->startTime = HAL_GetTick();
     }
-    if (delay->startTime + delay->duration >= HAL_GetTick()) {
+    if (delay->startTime + delay->duration <= HAL_GetTick()) {
         delay->running = false;
         return true;
     }
