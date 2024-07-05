@@ -55,7 +55,7 @@
 
 /* USER CODE BEGIN PV */
 
-/* Estado actual de un led */
+/* Secuencia de duraciones del led. Tiempo on. */
 const tick_t TIEMPOS[] = {500, 100, 100, 1000};
 
 /* USER CODE END PV */
@@ -114,13 +114,12 @@ int main(void)
     }*/
 
     BSP_LED_Init(LED1);
-    BSP_LED_Init(LED2);
-    BSP_LED_Init(LED3);
 
-    delay_t demora;
+    delay_t demora; // Nuestro estado de demora
     delayInit(&demora, 0);
-    int32_t posicion_secuencia = DIM(TIEMPOS);
-    bool_t encendido = false;
+
+    int32_t posicion_secuencia = DIM(TIEMPOS); // Posición actual de la secuencia
+    bool_t encendido = false; // Led encendido
 
     /* USER CODE END 2 */
 
@@ -132,9 +131,12 @@ int main(void)
         /* USER CODE BEGIN 3 */
         if (delayRead(&demora)) {
             if (encendido) {
+                /* Led encendido y se terminó el tiempo: no reseteamos la demora ya que lo hace el delayRead y el periodo no cambia */
                 BSP_LED_Off(LED1);
                 encendido = false;
             } else {
+                /* Led apagado y se terminó el tiempo: pasar a la siguiente posición de la secuencia, resetear
+                 * el timer al nuevo valor y encender el led */
                 INC_SATURADO(posicion_secuencia, DIM(TIEMPOS));
                 if (!delayIsRunning(&demora)) { // Punto 3, no necesario ya que solo entramos aquí si el delay acaba de terminar
                     delayWrite(&demora, TIEMPOS[posicion_secuencia]);
