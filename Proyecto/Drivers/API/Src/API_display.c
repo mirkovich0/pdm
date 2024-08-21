@@ -21,9 +21,9 @@
 
 extern I2C_HandleTypeDef hi2c1;
 
+#define DATA_BUFFER_SIZE 512
+
 #define DEV_ADDRESS 0x7e
-#define ROWS 2
-#define COLS 20
 
 #define LCD_PIN_RS   (1 << 0)
 #define LCD_PIN_RW  (1 << 1)
@@ -36,7 +36,22 @@ extern I2C_HandleTypeDef hi2c1;
 #define LCD_PIN_DB6 (1 << 6)
 #define LCD_PIN_DB7 (1 << 7)
 
+#define LINES 2
+#define COLS 16
+
 static char disp_on;
+static size_t line;
+
+typedef enum {
+    FIRST_STAGE,
+    SET_HIGHER_DATA = FIRST_STAGE, RAISE_E, LOWER_E,
+    SET_LOWER_DATA, RAISE_E_2, LOWER_E_2,
+    LAST_STAGE
+} stage_t;
+
+static stage_t stage;
+static queue_t* queue;
+static delay_t process_timer;
 
 static bool sendI2CChar(uint8_t chr)
 {
@@ -50,18 +65,37 @@ static void lcdCommand(uint8_t command)
     sendI2CChar((command << 4) | disp_on);
 }
 
-//static void lcdData(uint8_t data)
-//{
-//    sendI2CChar((data << 4) | LCD_PIN_RS | disp_on);
-//    sendI2CChar((data << 4) | LCD_PIN_E | LCD_PIN_RS | disp_on);
-//    sendI2CChar((data << 4) | LCD_PIN_RS | disp_on);
-//}
-
 void display_Clear()
 {
     lcdCommand(0x00);
     lcdCommand(0x01);
     HAL_Delay(10);
+    display_SetLine(0);
+}
+
+static void set_Address(int new_address)
+{
+    int command = 0x80 | (new_address & 0x7f);
+    lcdCommand(command >> 4);
+    lcdCommand(command & 0x0f);
+}
+
+void display_Cursor(bool on, bool blinking)
+{
+    lcdCommand(0x00);
+    lcdCommand(0x0C | (on? 0x02: 0x00) | (blinking? 0x01: 0x00));
+    HAL_Delay(1);
+}
+
+void display_SetLine(int new_line)
+{
+    assert(line >= 0 && line <= LINES);
+    while (!queue_Empty(queue)) {
+        display_Process();
+    }
+
+    line = new_line;
+    set_Address(0x40 * line);
 }
 
 void display_On(bool on)
@@ -70,20 +104,8 @@ void display_On(bool on)
         return;
     }
     disp_on = on? LCD_PIN_DISP_ON : 0;
+    display_Clear();
 }
-
-typedef enum {
-    FIRST_STAGE,
-    SET_HIGHER_DATA = FIRST_STAGE, RAISE_E, LOWER_E,
-    SET_LOWER_DATA, RAISE_E_2, LOWER_E_2,
-    LAST_STAGE
-} stage_t;
-
-#define DATA_BUFFER_SIZE 512
-static stage_t stage;
-static queue_t* queue;
-
-static delay_t process_timer;
 
 void Display_Reset()
 {
@@ -105,12 +127,13 @@ void Display_Reset()
     lcdCommand(0x08);
     HAL_Delay(1);
     lcdCommand(0x00);
-    lcdCommand(0x0e);
+    lcdCommand(0x0c);
     HAL_Delay(1);
     lcdCommand(0x00);
     lcdCommand(0x06);
     HAL_Delay(1);
     display_Clear();
+    display_Cursor(false, false);
     HAL_Delay(10);
     stage = FIRST_STAGE;
 }

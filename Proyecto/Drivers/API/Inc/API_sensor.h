@@ -12,8 +12,11 @@
 #include <stdint.h>
 
 void sensor_Init();
-float sensor_ReadTemp();
-float sensor_ReadHumidity();
+bool sensor_HayValores();
+int sensor_ReadTemp();
+int sensor_ReadHumidity();
+float sensor_ReadTempFloat();
+float sensor_ReadHumidityFloat();
 void sensor_Process();
 
 #endif /* API_INC_API_SENSOR_H_ */

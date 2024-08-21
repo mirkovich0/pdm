@@ -18,7 +18,7 @@ extern I2C_HandleTypeDef hi2c2;
 
 static float last_temperature = 0.0f;
 static float last_humidity = 0.0f;
-
+static bool hay_valores = false;
 static bool initted = false;
 
 static delay_t delay;
@@ -29,6 +29,11 @@ static bool startMeasuring()
 {
     uint8_t buf[2] = { 0x20, 0x32 };
     return HAL_OK == HAL_I2C_Master_Transmit(&hi2c2, DEV_ADDRESS, buf, sizeof(buf), 100000);
+}
+
+bool sensor_HayValores()
+{
+    return hay_valores;
 }
 
 static bool readMeasures()
@@ -46,6 +51,7 @@ static bool readMeasures()
     int humidity = (measurement[3] << 8) | measurement[4];
     last_temperature = -45.0 + 175.0 * ((float)temp) / 65535.0;
     last_humidity = 100.0 * ((float)humidity) / 65535.0;
+    hay_valores = true;
 
     return true;
 }
@@ -57,12 +63,22 @@ void sensor_Init()
     startMeasuring();
 }
 
-float sensor_ReadTemp()
+float sensor_ReadTempFloat()
 {
     return last_temperature;
 }
 
-float sensor_ReadHumidity()
+float sensor_ReadHumidityFloat()
+{
+    return last_humidity;
+}
+
+int sensor_ReadTemp()
+{
+    return last_temperature;
+}
+
+int sensor_ReadHumidity()
 {
     return last_humidity;
 }

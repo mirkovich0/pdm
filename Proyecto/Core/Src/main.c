@@ -25,15 +25,44 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include <stdio.h>
+#include <string.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+typedef enum
+{
+    IDLE,
+    DESACTIVADO,
+    IRRIGACION,
+} estado_valvula_t;
+
+typedef enum
+{
+    IDLE_TECLADO,
+    MENSAJE,
+    ENTRADA_TECLADO,
+    PROCESAR_ENTRADA,
+} estado_entrada_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+#define DURACION_MENSAJE 2000
+#define TIEMPO_MEDICION 1000
+#define TIEMPO_SIN_IRRIGAR 10000
+#define MAXIMA_DURACION_IRRIGANDO 10000
+#define MAXIMA_DURACION_SIN_TECLAS 5000
+
+#define DESACTIVACION '*'
+#define MEDICION '#'
+#define ENTER  'D'
+#define BACKSPACE 'A'
 
 /* USER CODE END PD */
 
@@ -57,8 +86,26 @@
 
 /* USER CODE BEGIN PV */
 
-static const tick_t FAST_LED_TICKS = 100;
-static const tick_t SLOW_LED_TICKS = 500;
+static const tick_t LED_TICKS = 100;
+static estado_entrada_t estado_entrada;
+static estado_valvula_t estado_valvula;
+
+static int limite_humedad = 50;
+static int humedad = 100;
+
+static delay_t timer_entrada;
+static delay_t timer_mensaje;
+static delay_t timer_medicion;
+static delay_t timer_irrigacion;
+static delay_t timer_sin_irrigar;
+static bool hay_mensaje;
+static bool mensaje_mostrado = false;
+static bool desactivado = false;
+static bool mostrar_medicion = false;
+static bool puede_irrigar = true;
+static char mensaje[32];
+static char entrada[2];
+static int len_entrada;
 
 /* USER CODE END PV */
 
@@ -71,14 +118,185 @@ void SystemClock_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-void presionado()
+void encender_Valvula()
 {
-    uartSendString((const uint8_t*) "Flanco descendente\r\n");
+    BSP_LED_On(LED2);
+    uartSendString((const uint8_t*) "Enciendo valvula\r\n");
 }
 
-void liberado()
+void apagar_Valvula()
 {
-    uartSendString((const uint8_t*) "Flanco ascendente\r\n");
+    BSP_LED_Off(LED2);
+    uartSendString((const uint8_t*) "Apago valvula\r\n");
+}
+
+void set_mensaje(const char* msg)
+{
+    strncpy(mensaje, msg, sizeof(mensaje)-1);
+    delayWrite(&timer_mensaje, DURACION_MENSAJE);
+    hay_mensaje = true;
+}
+
+void procesar_Valvula()
+{
+    switch (estado_valvula) {
+    case IDLE:
+        if (!puede_irrigar) {
+            puede_irrigar = delayRead(&timer_sin_irrigar);
+        }
+        if (delayRead(&timer_medicion)) {
+            if (sensor_HayValores()) {
+                int nuevo_valor = sensor_ReadHumidity();
+                if (nuevo_valor != humedad) {
+                    humedad = nuevo_valor;
+                    if (mostrar_medicion) {
+                        uint8_t msg[32];
+                        snprintf((char*) msg, sizeof(msg), "Medido: %d%%\r\n", humedad);
+                        uartSendString(msg);
+                    }
+                }
+            }
+        }
+        if (humedad < limite_humedad && puede_irrigar) {
+            delayInit(&timer_irrigacion, MAXIMA_DURACION_IRRIGANDO);
+            estado_valvula = IRRIGACION;
+            encender_Valvula();
+        }
+        if (desactivado) {
+            estado_valvula = DESACTIVADO;
+        }
+        break;
+    case DESACTIVADO:
+        if (!desactivado) {
+            estado_valvula = IDLE;
+        }
+        break;
+    case IRRIGACION:
+        puede_irrigar = false;
+        delayInit(&timer_sin_irrigar, TIEMPO_SIN_IRRIGAR);
+        if (delayRead(&timer_medicion)) {
+            humedad = sensor_HayValores() ? sensor_ReadHumidity() : 100;
+        }
+        if (desactivado) {
+            estado_valvula = DESACTIVADO;
+            apagar_Valvula();
+        } else if (humedad > limite_humedad) {
+            estado_valvula = IDLE;
+            apagar_Valvula();
+        } else if (delayRead(&timer_irrigacion)) {
+            estado_valvula = IDLE;
+            apagar_Valvula();
+        }
+        break;
+    default:
+        estado_valvula = IDLE;
+    }
+}
+
+void procesar_Entrada()
+{
+    switch (estado_entrada)
+    {
+    case IDLE_TECLADO:
+        if (hay_mensaje) {
+            display_On(true);
+            display_Clear();
+            display_Print("%s", mensaje);
+            display_Cursor(false, false);
+            estado_entrada = MENSAJE;
+            hay_mensaje = false;
+        } else if (keyboard_KeyPressed()) {
+            display_On(true);
+            display_Clear();
+            display_Print("Limite: %d%%", limite_humedad);
+            display_SetLine(1);
+            display_Print("Nuevo valor: ");
+            display_Cursor(true, true);
+            delayInit(&timer_entrada, MAXIMA_DURACION_SIN_TECLAS);
+            estado_entrada = ENTRADA_TECLADO;
+            len_entrada = 0;
+        }
+        break;
+    case MENSAJE:
+        mensaje_mostrado = true;
+        if (keyboard_KeyPressed()) {
+            keyboard_ReadKey();
+            estado_entrada = IDLE_TECLADO;
+            mensaje_mostrado = false;
+            display_On(false);
+        }
+        if (delayRead(&timer_mensaje)) {
+            estado_entrada = IDLE_TECLADO;
+            mensaje_mostrado = false;
+            display_On(false);
+        }
+        break;
+    case ENTRADA_TECLADO:
+        if (keyboard_KeyPressed()) {
+            delayInit(&timer_entrada, MAXIMA_DURACION_SIN_TECLAS);
+
+            int key = keyboard_ReadKey();
+
+            if (key >= '0' && key <= '9') {
+                if (len_entrada < sizeof(entrada)) {
+                    entrada[len_entrada++] = key;
+                }
+                display_SetLine(1);
+                display_Print("Nuevo valor: %2s%%", entrada);
+            } else if (key == DESACTIVACION) {
+                desactivado = !desactivado;
+                if (desactivado) {
+                    set_mensaje("Desactivando");
+                } else {
+                    set_mensaje("Activando");
+                }
+                len_entrada = 0;
+                estado_entrada = IDLE_TECLADO;
+                display_On(false);
+            } else if (key == MEDICION) {
+                mostrar_medicion = !mostrar_medicion;
+                len_entrada = 0;
+                estado_entrada = IDLE_TECLADO;
+                display_On(false);
+            } else if (key == BACKSPACE) {
+                if (len_entrada > 0) {
+                    len_entrada--;
+                    entrada[len_entrada] = 0;
+                }
+                display_SetLine(1);
+                display_Print("Nuevo valor: %2s%%", entrada);
+            } else if (key == ENTER) {
+                display_Cursor(false, false);
+                if (len_entrada > 0) {
+                    estado_entrada = PROCESAR_ENTRADA;
+                } else {
+                    len_entrada = 0;
+                    estado_entrada = IDLE_TECLADO;
+                    display_On(false);
+                }
+            }
+        } else if (delayRead(&timer_entrada)) {
+            estado_entrada = IDLE_TECLADO;
+            display_On(false);
+        }
+        break;
+    case PROCESAR_ENTRADA:
+    {
+        int valor = 0;
+        for (int i = 0; i < len_entrada; i++) {
+            valor *= 10;
+            valor += entrada[i] - '0';
+        }
+        limite_humedad = valor;
+        set_mensaje("Limite fijado");
+        estado_entrada = IDLE_TECLADO;
+        len_entrada = 0;
+        display_On(false);
+        break;
+    }
+    default:
+        estado_entrada = IDLE_TECLADO;
+    }
 }
 
 /* USER CODE END 0 */
@@ -123,12 +341,10 @@ int main(void)
     BSP_LED_Init(LED3);
     BSP_PB_Init(BUTTON_USER, BUTTON_MODE_GPIO);
 
-    debounceFSM_init(presionado, liberado);
     assert(uartInit());
 
-    bool fast = false;
     delay_t led_delay;
-    delayInit(&led_delay, fast ? FAST_LED_TICKS : SLOW_LED_TICKS);
+    delayInit(&led_delay, LED_TICKS);
 
     /* USER CODE END 2 */
 
@@ -140,45 +356,28 @@ int main(void)
     keyboard_Init();
     sensor_Init();
 
+    delayInit(&timer_medicion, TIEMPO_MEDICION);
+
     display_Clear();
 
     delay_t temp_delay;
     delayInit(&temp_delay, 2000);
 
-    float temp = -100.0;
+    set_mensaje("Iniciado");
 
     while (1) {
         /* USER CODE END WHILE */
 
         /* USER CODE BEGIN 3 */
-        debounceFSM_update();
         display_Process();
         keyboard_Process();
         sensor_Process();
 
-        int key = keyboard_ReadKey();
-        switch (key) {
-        case -1:
-            break;
-        case 'B':
-            fast = !fast;
-            break;
-        case 'A': {
-            temp = sensor_ReadTemp();
-            int t = (int) temp;
-            float fraction = temp - (float) t;
-            int decimal_fraction = (int) (fraction * 100.0);
-            display_Clear();
-            display_Print("Temp: %d.%02d", t, decimal_fraction);
-            break;
-        }
-        default:
-            display_Clear();
-            display_Print("Pressed: %c", (char) key);
-        }
+        procesar_Entrada();
+        procesar_Valvula();
 
+        // Led de indicación de vida
         if (delayRead(&led_delay)) {
-            delayWrite(&led_delay, fast ? FAST_LED_TICKS : SLOW_LED_TICKS);
             BSP_LED_Toggle(LED1);
         }
     }

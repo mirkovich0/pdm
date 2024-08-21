@@ -13,6 +13,8 @@
 
 void display_Init();
 void display_Clear();
+void display_Cursor(bool on, bool blinking);
+void display_SetLine(int new_line);
 void display_On(bool on);
 void display_Process();
 void display_Print(const char* fmt, ...);
