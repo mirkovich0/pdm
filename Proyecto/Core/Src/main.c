@@ -138,11 +138,14 @@ int main(void)
 
     display_Init();
     keyboard_Init();
-
-    int i = 0;
+    sensor_Init();
 
     display_Clear();
-    display_Print("Counter: %d", i++);
+
+    delay_t temp_delay;
+    delayInit(&temp_delay, 2000);
+
+    float temp = -100.0;
 
     while (1) {
         /* USER CODE END WHILE */
@@ -151,16 +154,29 @@ int main(void)
         debounceFSM_update();
         display_Process();
         keyboard_Process();
+        sensor_Process();
 
-        if (readKey()) {
-            display_Clear();
-            display_Print("Counter: %d", i++);
+        int key = keyboard_ReadKey();
+        switch (key) {
+        case -1:
+            break;
+        case 'B':
             fast = !fast;
-        }
-        if (keyboard_KeyPressed()) {
+            break;
+        case 'A': {
+            temp = sensor_ReadTemp();
+            int t = (int) temp;
+            float fraction = temp - (float) t;
+            int decimal_fraction = (int) (fraction * 100.0);
             display_Clear();
-            display_Print("Pressed: %c", (char) keyboard_ReadKey());
+            display_Print("Temp: %d.%02d", t, decimal_fraction);
+            break;
         }
+        default:
+            display_Clear();
+            display_Print("Pressed: %c", (char) key);
+        }
+
         if (delayRead(&led_delay)) {
             delayWrite(&led_delay, fast ? FAST_LED_TICKS : SLOW_LED_TICKS);
             BSP_LED_Toggle(LED1);

@@ -37,6 +37,7 @@ extern "C" {
 #include "API_delay.h"
 #include "API_display.h"
 #include "API_keyboard.h"
+#include "API_sensor.h"
 #include "API_uart.h"
 
 #include "error.h"
